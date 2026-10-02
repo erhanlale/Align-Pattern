@@ -95,8 +95,8 @@
 		}
 		thisObj.selectPosition(settings.fitPosition);
 
-		thisObj.cancel = thisObj.buttonGroup.add('button', undefined, 'Abbrechen', {name: 'cancel'});
-		thisObj.ok = thisObj.buttonGroup.add('button', undefined, 'Anwenden', { name:'ok'});
+		thisObj.cancel = thisObj.buttonGroup.add('button', undefined, 'Cancel', {name: 'cancel'});
+		thisObj.ok = thisObj.buttonGroup.add('button', undefined, 'Run', { name:'ok'});
 
 		thisObj.ok.onClick = function() {
 			app.redo();
@@ -125,15 +125,15 @@
 			app.redraw();
 			app.undo();
 		} catch(e) {
-			alert('Fehler:' + e);
+			alert('Error:' + e);
 		}
 	};
 
 	// Validation & Show dialog
 	var dialog = new mainDialog();
-	if (errorFlag && !confirm('Manche elemente können nicht bearbeitet werden. Weiter? \n・Text \n・Symbols \n・Compound shapes')) return false;
+	if (errorFlag && !confirm('Some elements cannot be edited. Continue? \n・Text \n・Symbols \n・Compound shapes')) return false;
 	if (!targetItems || targetItems.length < 1) {
-		alert('Objekt mit Rasterfüllung auswählen!');
+		alert('Select an object with a pattern fill!');
 	} else {
 		dialog.showDialog();
 	}
