@@ -1,3 +1,4 @@
+![Screenshot](screenshot.png)
 This is an Illustrator script that fits the pattern repeat origin to the top left or centre of the target object and resets the applied transformation.
 
 Installation method:
