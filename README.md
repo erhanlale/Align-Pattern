@@ -14,6 +14,9 @@ This script has not been verified for CS4 and earlier versions.
 
 How to use:
 
+![GUI](align-pattern-gui.png)
+
+
     Select the objects to be processed (multiple selection possible).
 Select File > Scripts > Reset Pattern.
 Select the elements to be reset in the [Target] field.
