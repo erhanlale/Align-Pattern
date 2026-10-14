@@ -1,0 +1,27 @@
+name: Blechzeichnung EXE
+
+on:
+  push:
+    paths:
+      - "blechzeichnung/**"
+      - ".github/workflows/blechzeichnung-exe.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: blechzeichnung
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ezdxf pyinstaller pytest
+      - run: python -m pytest -q tests
+      - run: python -m PyInstaller --noconfirm --onefile --windowed --name Blechzeichnung blech_gui.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Blechzeichnung-exe
+          path: blechzeichnung/dist/Blechzeichnung.exe
