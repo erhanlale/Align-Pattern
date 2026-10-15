@@ -10,10 +10,11 @@ den Beispielzeichnungen `Blech_Ofen_1909_1424.dxf` und
 eingeben, *DXF erstellen*. Die Datei heißt automatisch
 `Blech_Ofen_<Breite>_<Radius>.dxf` bzw. `Blech_QS_<Breite>_<R1>_<R2>.dxf`.
 
-**Python:** `pip install ezdxf`, dann
+**Python:** Alles steckt in der einen Datei `blech.py`.
+Einmalig `pip install ezdxf`, dann
 
 ```
-python blech_gui.py                       # Oberfläche
+python blech.py                           # Oberfläche
 python blech.py ofen 1909 1424            # Ofen-Blech: Breite Radius
 python blech.py qs 1909 1431 1417         # QS-Blech: Breite Radius1 Radius2
 python blech.py ofen 1909 1424 -t "ASH-458|50480GL12C-2 Lite1" -o C:\Zeichnungen
