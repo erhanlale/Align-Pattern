@@ -11,14 +11,30 @@ eingeben, *DXF erstellen*. Die Datei heißt automatisch
 `Blech_Ofen_<Breite>_<Radius>.dxf` bzw. `Blech_QS_<Breite>_<R1>_<R2>.dxf`.
 
 **Python:** Alles steckt in der einen Datei `blech.py`.
-Einmalig `pip install ezdxf`, dann
+Einmalig `pip install ezdxf pywin32`, dann
 
 ```
 python blech.py                           # Oberfläche
 python blech.py ofen 1909 1424            # Ofen-Blech: Breite Radius
 python blech.py qs 1909 1431 1417         # QS-Blech: Breite Radius1 Radius2
 python blech.py ofen 1909 1424 -t "ASH-458|50480GL12C-2 Lite1" -o C:\Zeichnungen
+python blech.py excel                     # aktive Zeile der offenen Excel-Liste
 ```
+
+## Aus Excel
+
+In Excel die Zeile anklicken (irgendeine Zelle der Zeile), dann in der
+Oberfläche **Aktive Zeile übernehmen** und **DXF erstellen** – oder direkt
+`python blech.py excel` (bzw. `Blechzeichnung.exe excel`).
+
+- Radius 2 leer oder `-` → Ofen-Blech, sonst QS-Blech.
+- Datei: `<Name>_Blech_QS_<Breite>_<R1>_<R2>.dxf`, z. B.
+  `ASH-468_Blech_QS_2900_6101_6141.dxf`.
+- Text in der Zeichnung: Name, Projektnr. + Projektname, Stück/Datum/Von,
+  dazu die Radien.
+- Die Spaltenbuchstaben (Standard: Name A, Stück B, Breite C, Radius 1 E,
+  Radius 2 G, Projektnr. I, Projektname J, Datum O, Von P) lassen sich unter
+  **Spalten…** ändern und werden gespeichert (`%USERPROFILE%\.blechzeichnung.json`).
 
 ## Regeln
 

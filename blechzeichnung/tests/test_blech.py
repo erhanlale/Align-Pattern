@@ -109,3 +109,59 @@ def test_dxf(tmp_path):
         assert "ASH-458" in text
     assert sorted(os.listdir(tmp_path)) == [
         "Blech_Ofen_1909_1424.dxf", "Blech_QS_1909_1431_1417.dxf"]
+
+
+# ---------------------------------------------------------------- Excel
+
+ZEILE_QS = {"name": "ASH-468", "stueck": "1", "breite": "2900",
+            "radius1": "6101", "radius2": "6141", "projektnr": "41771",
+            "projekt": "BAU 2025 curved IGU", "datum": "07.10.2024", "von": "ela"}
+
+
+def test_excel_zeile_qs():
+    d = blech.aus_excel_zeile(ZEILE_QS)
+    assert d["art"] == "QS"
+    assert (d["breite"], d["radius1"], d["radius2"]) == (2900, 6101, 6141)
+    assert d["name"] == "ASH-468"
+    assert d["text"] == "41771 BAU 2025 curved IGU\n1 Stk  07.10.2024  ela"
+
+
+@pytest.mark.parametrize("r2", ["", "-", " - ", None])
+def test_excel_zeile_ofen_ohne_radius2(r2):
+    d = blech.aus_excel_zeile({**ZEILE_QS, "radius2": r2})
+    assert d["art"] == "Ofen"
+    assert d["radius1"] == 6101
+
+
+@pytest.mark.parametrize("text,wert", [
+    ("6101", 6101), ("6.101", 6101), ("6 101", 6101), ("6101,5", 6101.5),
+    ("1.424,5", 1424.5), ("2900.0", 2900)])
+def test_excel_zahlen(text, wert):
+    assert blech._excel_zahl(text, "x") == wert
+
+
+def test_excel_fehler():
+    with pytest.raises(blech.BlechFehler):
+        blech.aus_excel_zeile({**ZEILE_QS, "breite": ""})
+    with pytest.raises(blech.BlechFehler):
+        blech.aus_excel_zeile({**ZEILE_QS, "radius1": "abc"})
+
+
+def test_dateiname_mit_name():
+    b = blech.berechne("qs", 2900, 6141, 6101)
+    assert blech.dateiname(b, "ASH-468") == "ASH-468_Blech_QS_2900_6101_6141.dxf"
+    assert blech.dateiname(b, "A/B") == "A_B_Blech_QS_2900_6101_6141.dxf"
+
+
+def test_cli_excel(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("ezdxf")
+    monkeypatch.setattr(blech, "lies_excel_zeile",
+                        lambda spalten=None: {**ZEILE_QS, "_zeile": 7})
+    blech.main(["excel", "-o", str(tmp_path)])
+    datei = tmp_path / "ASH-468_Blech_QS_2900_6101_6141.dxf"
+    assert datei.exists()
+    import ezdxf
+    text = ezdxf.readfile(datei).modelspace().query("MTEXT")[0].plain_text()
+    assert text.splitlines() == ["R6101", "ASH-468", "41771 BAU 2025 curved IGU",
+                                 "1 Stk  07.10.2024  ela", "R6141"]
+    assert "Excel-Zeile 7" in capsys.readouterr().out

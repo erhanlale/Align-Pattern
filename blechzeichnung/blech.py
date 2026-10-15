@@ -14,8 +14,10 @@ Beispielzeichnungen Blech_Ofen_1909_1424.dxf und Blech_qs_1909_1431_1417.dxf.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 
@@ -334,11 +336,14 @@ def _zahl(v):
     return f"{v:g}" if v is not None else ""
 
 
-def dateiname(blech: Blech) -> str:
+def dateiname(blech: Blech, name: str = "") -> str:
     if blech.art == "Ofen":
-        return f"Blech_Ofen_{_zahl(blech.scheibe)}_{_zahl(blech.radius_unten)}.dxf"
-    return (f"Blech_QS_{_zahl(blech.scheibe)}_{_zahl(blech.radius_oben)}"
-            f"_{_zahl(blech.radius_unten)}.dxf")
+        datei = f"Blech_Ofen_{_zahl(blech.scheibe)}_{_zahl(blech.radius_unten)}.dxf"
+    else:
+        datei = (f"Blech_QS_{_zahl(blech.scheibe)}_{_zahl(blech.radius_oben)}"
+                 f"_{_zahl(blech.radius_unten)}.dxf")
+    name = re.sub(r'[\\/:*?"<>|]+', "_", name.strip())
+    return f"{name}_{datei}" if name else datei
 
 
 def beschriftung(blech: Blech, bezeichnung: str = "") -> list[str]:
@@ -431,9 +436,118 @@ def zusammenfassung(blech: Blech) -> str:
     return "\n".join(zeilen)
 
 
+# ---------------------------------------------------------------- Excel
+
+EINSTELLUNGEN = os.path.join(os.path.expanduser("~"), ".blechzeichnung.json")
+
+# Spalten der Excel-Liste (Buchstaben). Leer = nicht verwenden.
+# Änderbar in der Oberfläche unter "Excel-Spalten…".
+EXCEL_FELDER = [
+    ("name", "Name", "A"),
+    ("stueck", "Stück", "B"),
+    ("breite", "Breite", "C"),
+    ("radius1", "Radius 1", "E"),
+    ("radius2", "Radius 2", "G"),
+    ("projektnr", "Projektnr.", "I"),
+    ("projekt", "Projektname", "J"),
+    ("datum", "Datum", "O"),
+    ("von", "Von", "P"),
+]
+
+
+def lade_einstellungen() -> dict:
+    try:
+        with open(EINSTELLUNGEN, encoding="utf-8") as f:
+            daten = json.load(f)
+        if isinstance(daten, dict):
+            return daten
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def speichere_einstellungen(daten: dict):
+    try:
+        with open(EINSTELLUNGEN, "w", encoding="utf-8") as f:
+            json.dump(daten, f, indent=2, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def excel_spalten(einstellungen: dict | None = None) -> dict:
+    gespeichert = (einstellungen or lade_einstellungen()).get("spalten", {})
+    return {key: gespeichert.get(key, standard).strip().upper()
+            for key, _, standard in EXCEL_FELDER}
+
+
+def _excel_zahl(text: str, name: str, optional=False):
+    """Zahl aus Excel-Text, auch '6.101' oder '6101,5'. '-' gilt als leer."""
+    t = text.strip().replace(" ", "").replace("\u00a0", "")
+    if t in ("", "-", "–", "0"):
+        if optional:
+            return None
+        raise BlechFehler(f"Excel: {name} fehlt.")
+    if re.fullmatch(r"\d{1,3}(\.\d{3})+(,\d+)?", t):
+        t = t.replace(".", "")
+    try:
+        return float(t.replace(",", "."))
+    except ValueError:
+        raise BlechFehler(f"Excel: {name} '{text}' ist keine Zahl.") from None
+
+
+def aus_excel_zeile(werte: dict) -> dict:
+    """Werte einer Excel-Zeile -> Eingaben für das Blech.
+
+    Radius 2 leer oder '-' -> Ofen-Blech, sonst QS-Blech.
+    """
+    werte = {k: str(v or "").strip() for k, v in werte.items()}
+    breite = _excel_zahl(werte.get("breite", ""), "Breite")
+    r1 = _excel_zahl(werte.get("radius1", ""), "Radius 1")
+    r2 = _excel_zahl(werte.get("radius2", ""), "Radius 2", optional=True)
+    projekt = " ".join(t for t in (werte.get("projektnr"), werte.get("projekt")) if t)
+    stueck = werte.get("stueck", "")
+    rest = "  ".join(t for t in (f"{stueck} Stk" if stueck else "",
+                                 werte.get("datum"), werte.get("von")) if t)
+    return {
+        "art": "Ofen" if r2 is None else "QS",
+        "breite": breite,
+        "radius1": r1,
+        "radius2": r2,
+        "name": werte.get("name", ""),
+        "text": "\n".join(t for t in (projekt, rest) if t),
+    }
+
+
+def lies_excel_zeile(spalten: dict | None = None) -> dict:
+    """Aktive Zeile aus dem geöffneten Excel lesen (nur Windows)."""
+    spalten = spalten or excel_spalten()
+    try:
+        import win32com.client
+    except ImportError:
+        raise BlechFehler("Für Excel wird das Paket 'pywin32' gebraucht:\n"
+                          "    pip install pywin32") from None
+    try:
+        excel = win32com.client.GetActiveObject("Excel.Application")
+    except Exception:
+        raise BlechFehler("Excel ist nicht geöffnet.") from None
+    try:
+        zelle = excel.ActiveCell
+        if zelle is None:
+            raise BlechFehler("In Excel ist keine Zelle ausgewählt.")
+        blatt, zeile = zelle.Worksheet, zelle.Row
+        werte = {key: blatt.Range(f"{sp}{zeile}").Text
+                 for key, sp in spalten.items() if sp}
+    except BlechFehler:
+        raise
+    except Exception:
+        raise BlechFehler("Excel antwortet nicht - bitte die Zellbearbeitung "
+                          "beenden (Enter oder Esc) und nochmal versuchen.") from None
+    werte["_zeile"] = zeile
+    return werte
+
+
 # ---------------------------------------------------------------- Oberfläche
 
-EINSTELLUNGEN = os.path.join(os.path.expanduser("~"), ".blechzeichnung_ordner")
 _TkBasis = tk.Tk if tk else object
 
 
@@ -479,8 +593,8 @@ class App(_TkBasis):
     def __init__(self):
         super().__init__()
         self.title("Blechzeichnung")
-        self.geometry("1050x700")
-        self.minsize(820, 600)
+        self.geometry("1050x800")
+        self.minsize(820, 700)
         self.blech = None
 
         self.art = tk.StringVar(value="Ofen")
@@ -491,6 +605,8 @@ class App(_TkBasis):
         self.zugabe = tk.StringVar(value=f"{MAX_ZUGABE:g}")
         self.rand = tk.StringVar()
         self.bemassung = tk.BooleanVar(value=True)
+        self.name = tk.StringVar()
+        self.einstellungen = lade_einstellungen()
         self.ordner = tk.StringVar(value=self._lade_ordner())
 
         links = ttk.Frame(self, padding=10)
@@ -498,8 +614,15 @@ class App(_TkBasis):
         rechts = ttk.Frame(self, padding=(0, 10, 10, 10))
         rechts.pack(side="left", fill="both", expand=True)
 
+        excel = ttk.LabelFrame(links, text="Excel", padding=6)
+        excel.pack(fill="x")
+        ttk.Button(excel, text="Aktive Zeile übernehmen",
+                   command=self.aus_excel).pack(side="left", expand=True, fill="x")
+        ttk.Button(excel, text="Spalten…",
+                   command=self._spalten_dialog).pack(side="left", padx=(6, 0))
+
         art = ttk.LabelFrame(links, text="Blechart", padding=6)
-        art.pack(fill="x")
+        art.pack(fill="x", pady=(8, 0))
         for wert in ("Ofen", "QS"):
             ttk.Radiobutton(art, text=f"{wert}-Blech", value=wert,
                             variable=self.art,
@@ -509,6 +632,7 @@ class App(_TkBasis):
         werte.pack(fill="x", pady=(8, 0))
         self.zeilen = {}
         for zeile, (key, text, var) in enumerate([
+            ("name", "Name", self.name),
             ("breite", "Breite (Scheibe)", self.breite),
             ("r1", "Radius", self.radius1),
             ("r2", "Radius 2 (unten)", self.radius2),
@@ -575,13 +699,9 @@ class App(_TkBasis):
         self._zeichne()
 
     def _lade_ordner(self):
-        try:
-            with open(EINSTELLUNGEN, encoding="utf-8") as f:
-                ordner = f.read().strip()
-            if os.path.isdir(ordner):
-                return ordner
-        except OSError:
-            pass
+        ordner = self.einstellungen.get("ordner", "")
+        if ordner and os.path.isdir(ordner):
+            return ordner
         return os.path.join(os.path.expanduser("~"), "Desktop") \
             if os.path.isdir(os.path.join(os.path.expanduser("~"), "Desktop")) \
             else os.getcwd()
@@ -590,11 +710,59 @@ class App(_TkBasis):
         ordner = filedialog.askdirectory(initialdir=self.ordner.get() or None)
         if ordner:
             self.ordner.set(ordner)
-            try:
-                with open(EINSTELLUNGEN, "w", encoding="utf-8") as f:
-                    f.write(ordner)
-            except OSError:
-                pass
+            self.einstellungen["ordner"] = ordner
+            speichere_einstellungen(self.einstellungen)
+
+    def _spalten_dialog(self):
+        fenster = tk.Toplevel(self)
+        fenster.title("Excel-Spalten")
+        fenster.transient(self)
+        fenster.resizable(False, False)
+        rahmen = ttk.Frame(fenster, padding=10)
+        rahmen.pack()
+        ttk.Label(rahmen, text="Spaltenbuchstaben der Excel-Liste\n"
+                               "(leer = nicht verwenden)").grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        aktuell = excel_spalten(self.einstellungen)
+        felder = {}
+        for zeile, (key, text, _) in enumerate(EXCEL_FELDER, start=1):
+            ttk.Label(rahmen, text=text).grid(row=zeile, column=0, sticky="w", pady=1)
+            var = tk.StringVar(value=aktuell[key])
+            ttk.Entry(rahmen, textvariable=var, width=6).grid(
+                row=zeile, column=1, padx=(8, 0), pady=1)
+            felder[key] = var
+
+        def speichern():
+            spalten = {k: v.get().strip().upper() for k, v in felder.items()}
+            falsch = [s for s in spalten.values() if s and not re.fullmatch(r"[A-Z]{1,3}", s)]
+            if falsch:
+                messagebox.showerror("Excel-Spalten", f"Ungültige Spalte: {falsch[0]}",
+                                     parent=fenster)
+                return
+            self.einstellungen["spalten"] = spalten
+            speichere_einstellungen(self.einstellungen)
+            fenster.destroy()
+
+        ttk.Button(rahmen, text="Speichern", command=speichern).grid(
+            row=len(EXCEL_FELDER) + 1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        fenster.grab_set()
+
+    def aus_excel(self):
+        try:
+            werte = lies_excel_zeile(excel_spalten(self.einstellungen))
+            daten = aus_excel_zeile(werte)
+        except BlechFehler as e:
+            messagebox.showerror("Excel", str(e))
+            return
+        self.art.set(daten["art"])
+        self._art_geaendert()
+        self.name.set(daten["name"])
+        self.breite.set(_zahl(daten["breite"]))
+        self.radius1.set(_zahl(daten["radius1"]))
+        self.radius2.set(_zahl(daten["radius2"]))
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", daten["text"])
+        self.vorschau()
 
     def _berechne(self):
         breite = _eingabe_zahl(self.breite.get(), "Breite")
@@ -630,13 +798,13 @@ class App(_TkBasis):
         if not os.path.isdir(ordner):
             messagebox.showerror("Blechzeichnung", f"Ordner nicht gefunden:\n{ordner}")
             return
-        pfad = os.path.join(ordner, dateiname(self.blech))
+        pfad = os.path.join(ordner, dateiname(self.blech, self.name.get()))
         if os.path.exists(pfad) and not messagebox.askyesno(
                 "Blechzeichnung", f"{os.path.basename(pfad)} existiert schon.\nÜberschreiben?"):
             return
         try:
-            schreibe_dxf(self.blech, pfad, self.text.get("1.0", "end"),
-                               self.bemassung.get())
+            text = self.name.get().strip() + "\n" + self.text.get("1.0", "end")
+            schreibe_dxf(self.blech, pfad, text, self.bemassung.get())
         except Exception as e:  # z. B. Datei in AutoCAD geöffnet
             messagebox.showerror("Blechzeichnung", f"Speichern fehlgeschlagen:\n{e}")
             return
@@ -695,9 +863,11 @@ def main(argv=None):
     qs.add_argument("breite", type=float)
     qs.add_argument("radius1", type=float, help="Radius oben")
     qs.add_argument("radius2", type=float, help="Radius unten")
-    for s in (ofen, qs):
-        s.add_argument("-o", "--ausgabe", default=".",
-                       help="Datei oder Ordner (Standard: aktueller Ordner)")
+    excel = sub.add_parser("excel", help="aktive Zeile der geöffneten Excel-Liste")
+    for s in (ofen, qs, excel):
+        s.add_argument("-o", "--ausgabe", default=None,
+                       help="Datei oder Ordner (Standard: zuletzt in der "
+                            "Oberfläche gewählter Ordner, sonst aktueller Ordner)")
         s.add_argument("-t", "--text", default="",
                        help="Bezeichnung, mehrere Zeilen mit '|' trennen")
         s.add_argument("--hoehe", type=float, default=HOEHE_SEITE,
@@ -712,8 +882,27 @@ def main(argv=None):
         s.add_argument("--ohne-bemassung", dest="bemassung",
                        action="store_false", help="kein Radiusmaß")
     a = p.parse_args(argv)
+    if a.ausgabe is None:
+        a.ausgabe = lade_einstellungen().get("ordner") or "."
+        if not os.path.isdir(a.ausgabe):
+            a.ausgabe = "."
+    name = ""
     try:
-        if a.art == "ofen":
+        if a.art == "excel":
+            werte = lies_excel_zeile()
+            daten = aus_excel_zeile(werte)
+            name = daten["name"]
+            a.text = "|".join(t for t in [name] + daten["text"].splitlines() + [a.text] if t)
+            print(f"Excel-Zeile {werte['_zeile']}: {name}")
+            einstellungen = dict(hoehe_seite=a.hoehe, zugabe=a.zugabe,
+                                 langloch_rand=a.rand)
+            if daten["art"] == "QS":
+                blech = berechne("qs", daten["breite"], daten["radius2"],
+                                 daten["radius1"], **einstellungen)
+            else:
+                blech = berechne("ofen", daten["breite"], daten["radius1"],
+                                 **einstellungen)
+        elif a.art == "ofen":
             blech = berechne("ofen", a.breite, a.radius, hoehe_seite=a.hoehe,
                              zugabe=a.zugabe, langloch_rand=a.rand)
         else:
@@ -721,7 +910,9 @@ def main(argv=None):
                              hoehe_seite=a.hoehe, zugabe=a.zugabe,
                              langloch_rand=a.rand)
     except BlechFehler as e:
-        p.error(str(e))
+        p.exit(1, f"Fehler: {e}\n")
+    if os.path.isdir(a.ausgabe):
+        a.ausgabe = os.path.join(a.ausgabe, dateiname(blech, name))
     pfad = schreibe_dxf(blech, a.ausgabe, a.text.replace("|", "\n"),
                         a.bemassung)
     print(zusammenfassung(blech))
